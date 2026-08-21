@@ -10,6 +10,7 @@
     "build": "tsc",
     "start": "node build/index.js",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test server/**/*.test.ts",
     "clean": "rm -rf build"
   },
   "engines": {

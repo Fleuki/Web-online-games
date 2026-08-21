@@ -379,3 +379,40 @@ button.secondary:active:not(:disabled) {
     font-size: 21px;
   }
 }
+
+/* ---------------------------------------------------------------
+   Игровой экран. Разметку внутри рисует игровой модуль — свои стили
+   он приносит с собой, здесь только общая раскладка экрана.
+
+   Игра занимает весь экран, поэтому строку статуса и кнопку выхода
+   прижимаем к низу: иначе они наезжают на то, что рисует игра.
+   --------------------------------------------------------------- */
+
+#game-step {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: calc(100vh - 56px);
+  min-height: calc(100dvh - 56px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+#game-step > .status,
+#game-step > button {
+  position: relative;
+  z-index: 1;
+}
+
+#game-step > .status {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(16, 21, 28, 0.82);
+  color: var(--text);
+}
+
+/* Пустая строка статуса не должна висеть тёмной плашкой поверх игры. */
+#game-step > .status:empty {
+  padding: 0;
+  background: none;
+}
