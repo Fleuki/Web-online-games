@@ -1,0 +1,23 @@
+# Деплой на Render: Blueprint читается автоматически при подключении репозитория.
+#
+# Free-тариф подходит для проверки: WebSocket поддерживается, карта не нужна.
+# Но сервис засыпает после 15 минут без запросов, и первый заход после сна
+# ждёт около минуты. Комнаты живут в памяти, поэтому сон их обнуляет.
+services:
+  - type: web
+    name: web-online-games
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # PORT Render подставляет сам, HOST по умолчанию 0.0.0.0 — трогать не нужно.
+      - key: RECONNECT_TIMEOUT
+        value: "60"
+      - key: DEFAULT_GAME
+        value: treegame
