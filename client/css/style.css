@@ -1,0 +1,381 @@
+/* ---------------------------------------------------------------
+   Общие стили. Базовая ширина — 360px, всё тянется вверх оттуда.
+   --------------------------------------------------------------- */
+
+:root {
+  --bg: #10151c;
+  --panel: #1a222d;
+  --panel-2: #222c3a;
+  --line: #2f3d4f;
+  --text: #e8eef6;
+  --muted: #8fa3bb;
+  --accent: #4ea15f;
+  --accent-press: #3f8a4f;
+  --danger: #c9564f;
+  --warn: #d9a441;
+  --radius: 12px;
+  --tap: 48px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  /* Убирает подгонку размера шрифта при повороте экрана в iOS */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* Мобильные требования: ничего не выделяется, не тянется, не подсвечивается */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overscroll-behavior: none;
+}
+
+.page {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 24px 16px 32px;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin: 0 0 24px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+input[type="text"] {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 16px; /* < 16px заставляет iOS зумить при фокусе */
+  font-family: inherit;
+  /* Поля ввода — единственное место, где выделение нужно */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+input[type="text"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.35em;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+button {
+  display: block;
+  width: 100%;
+  min-height: var(--tap);
+  margin-top: 12px;
+  padding: 13px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:active:not(:disabled) {
+  background: var(--accent-press);
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+button.secondary:active:not(:disabled) {
+  background: var(--line);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.row button {
+  margin-top: 0;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* --- код комнаты --- */
+
+.room-code {
+  font-size: clamp(40px, 16vw, 60px);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-align: center;
+  margin: 4px 0 2px;
+  /* Код удобно выделить и скопировать руками */
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.room-code-hint {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* --- список игроков --- */
+
+.players {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.players li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.players li:last-child {
+  border-bottom: 0;
+}
+
+.dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.dot.offline {
+  background: var(--warn);
+}
+
+.player-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.slot-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* --- статусы и ошибки --- */
+
+.status {
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+  min-height: 20px;
+}
+
+.error {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(201, 86, 79, 0.14);
+  border: 1px solid var(--danger);
+  color: #f0b4b0;
+  font-size: 14px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* --- оверлей переподключения --- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: rgba(16, 21, 28, 0.94);
+  text-align: center;
+}
+
+.overlay h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.overlay p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+
+  button:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* --- игровой экран --- */
+
+.game-area {
+  text-align: center;
+}
+
+.scoreboard {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.score {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.score.me {
+  border-color: var(--accent);
+}
+
+.score-name {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-value {
+  display: block;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.chop-button {
+  min-height: 128px;
+  font-size: 20px;
+}
+
+@media (max-width: 380px) {
+  .page {
+    padding: 16px 12px 24px;
+  }
+
+  h1 {
+    font-size: 21px;
+  }
+}

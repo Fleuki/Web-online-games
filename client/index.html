@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Играйте с другом в браузере: создайте комнату и отправьте ссылку.">
+<title>Игры на двоих</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<main class="page">
+  <h1>Игры на двоих</h1>
+  <p class="subtitle">Создайте комнату и отправьте ссылку другу. Регистрации нет.</p>
+
+  <div class="card">
+    <label for="name">Ваш ник</label>
+    <input type="text" id="name" maxlength="16" autocomplete="nickname"
+           enterkeyhint="done" placeholder="Как вас звать?">
+
+    <button id="create" type="button">Создать комнату</button>
+  </div>
+
+  <div class="divider">или</div>
+
+  <div class="card">
+    <label for="code">Код комнаты</label>
+    <input type="text" id="code" class="code-input" maxlength="4"
+           autocomplete="off" autocapitalize="characters" spellcheck="false"
+           enterkeyhint="go" placeholder="ABCD" aria-describedby="code-hint">
+    <p class="room-code-hint" id="code-hint">4 символа с экрана друга</p>
+
+    <button id="join" type="button" class="secondary">Войти</button>
+  </div>
+
+  <p class="status" id="status" role="status"></p>
+  <p class="error" id="error" role="alert" hidden></p>
+</main>
+
+<script src="/vendor/colyseus.js"></script>
+<script src="/js/mobile.js"></script>
+<script src="/js/storage.js"></script>
+<script src="/js/net.js"></script>
+<script src="/js/lobby.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<title>Комната</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<main class="page">
+
+  <!-- Шаг 1. Ник. Показывается только тому, кто пришёл по ссылке впервые. -->
+  <section id="name-step" hidden>
+    <h1>Вас позвали играть</h1>
+    <p class="subtitle">Комната <strong id="name-step-code"></strong></p>
+
+    <div class="card">
+      <label for="name">Ваш ник</label>
+      <input type="text" id="name" maxlength="16" autocomplete="nickname"
+             enterkeyhint="go" placeholder="Как вас звать?">
+      <button id="enter" type="button">Войти в комнату</button>
+    </div>
+  </section>
+
+  <!-- Шаг 2. Комната: код, ссылка, игроки. -->
+  <section id="room-step" hidden>
+    <div class="card">
+      <p class="room-code-hint">Код комнаты</p>
+      <p class="room-code" id="code">····</p>
+      <p class="room-code-hint" id="game-name"></p>
+      <button id="copy" type="button" class="secondary">Скопировать ссылку</button>
+    </div>
+
+    <div class="card">
+      <label>Игроки</label>
+      <ul class="players" id="players"></ul>
+    </div>
+
+    <button id="start" type="button" hidden>Начать</button>
+    <p class="status" id="status" role="status"></p>
+  </section>
+
+  <!-- Шаг 3. Игра. Разметку внутрь кладёт игровой модуль. -->
+  <section id="game-step" hidden>
+    <div class="game-area" id="game-root"></div>
+    <p class="status" id="game-status" role="status"></p>
+    <button id="back" type="button" class="secondary" hidden>Выйти в лобби</button>
+  </section>
+
+  <p class="error" id="error" role="alert" hidden></p>
+</main>
+
+<!-- Оверлей обрыва связи. -->
+<div class="overlay" id="reconnect-overlay" hidden>
+  <div class="spinner" aria-hidden="true"></div>
+  <h2>Переподключение...</h2>
+  <p id="reconnect-text">Возвращаемся в комнату</p>
+</div>
+
+<script src="/vendor/colyseus.js"></script>
+<script src="/js/mobile.js"></script>
+<script src="/js/storage.js"></script>
+<script src="/js/net.js"></script>
+<script src="/js/games/registry.js"></script>
+<script src="/js/games/treegame.js"></script>
+<script src="/js/room.js"></script>
+</body>
+</html>
