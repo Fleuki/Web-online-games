@@ -26,29 +26,49 @@
     </div>
   </section>
 
-  <!-- Шаг 2. Комната: код, ссылка, игроки. -->
+  <!-- Шаг 2. Лобби комнаты: код, выбор игры, игроки, готовность. -->
   <section id="room-step" hidden>
     <div class="card">
       <p class="room-code-hint">Код комнаты</p>
       <p class="room-code" id="code">····</p>
-      <p class="room-code-hint" id="game-name"></p>
       <button id="copy" type="button" class="secondary">Скопировать ссылку</button>
+    </div>
+
+    <div class="card">
+      <label>Игра</label>
+      <ul class="games" id="games"></ul>
+      <p class="room-code-hint" id="game-hint"></p>
     </div>
 
     <div class="card">
       <label>Игроки</label>
       <ul class="players" id="players"></ul>
+      <div class="tally" id="lobby-tally" hidden></div>
     </div>
 
-    <button id="start" type="button" hidden>Начать</button>
+    <button id="ready" type="button">Готов</button>
     <p class="status" id="status" role="status"></p>
+    <button id="leave" type="button" class="quiet">Выйти из комнаты</button>
   </section>
 
-  <!-- Шаг 3. Игра. Разметку внутрь кладёт игровой модуль. -->
+  <!-- Шаг 3. Партия. Разметку внутрь кладёт игровой модуль. -->
   <section id="game-step" hidden>
     <div class="game-area" id="game-root"></div>
     <p class="status" id="game-status" role="status"></p>
-    <button id="back" type="button" class="secondary" hidden>Выйти в лобби</button>
+  </section>
+
+  <!-- Шаг 4. Результаты партии. Комната при этом жива, игроки на месте. -->
+  <section id="results-step" hidden>
+    <div class="card result-card">
+      <p class="result-match" id="result-match"></p>
+      <p class="result-title" id="result-title"></p>
+      <p class="result-note" id="result-note"></p>
+      <div class="tally" id="result-tally"></div>
+    </div>
+
+    <button id="again" type="button">Играть снова</button>
+    <button id="other-game" type="button" class="secondary">Другая игра</button>
+    <p class="status" id="results-status" role="status"></p>
   </section>
 
   <p class="error" id="error" role="alert" hidden></p>

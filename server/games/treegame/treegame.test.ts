@@ -106,7 +106,7 @@ test("createState заводит обоих игроков и участок с�
   const state = newState();
 
   assert.deepEqual(Object.keys(state.players).sort(), ["p1", "p2"]);
-  assert.deepEqual(state.players.p1, { score: 0, stunnedUntil: 0 });
+  assert.deepEqual(state.players.p1, { score: 0, stunnedUntil: 0, stunned: false });
   assert.equal(state.targetScore, treegameConfig.targetScore);
   assert.equal(state.stunDurationMs, treegameConfig.stunDurationMs);
   assert.ok(state.trunk.length >= treegameConfig.chunkSize);
@@ -136,7 +136,7 @@ test("оглушённый игрок рубить не может", () => {
     ...state,
     players: {
       ...state.players,
-      p1: { score: 0, stunnedUntil: Date.now() + 5000 },
+      p1: { score: 0, stunnedUntil: Date.now() + 5000, stunned: true },
     },
   };
 
@@ -149,7 +149,10 @@ test("когда оглушение прошло, рубить снова мож
   const state = newState();
   const recovered: TreeGameState = {
     ...state,
-    players: { ...state.players, p1: { score: 0, stunnedUntil: Date.now() - 1 } },
+    players: {
+      ...state.players,
+      p1: { score: 0, stunnedUntil: Date.now() - 1, stunned: true },
+    },
   };
 
   assert.equal(treegame.validateAction(recovered, "p1", chop("left")), true);
@@ -159,7 +162,10 @@ test("после победы удары не принимаются", () => {
   const state = newState();
   const finished: TreeGameState = {
     ...state,
-    players: { ...state.players, p1: { score: state.targetScore, stunnedUntil: 0 } },
+    players: {
+      ...state.players,
+      p1: { score: state.targetScore, stunnedUntil: 0, stunned: false },
+    },
   };
 
   assert.equal(treegame.validateAction(finished, "p1", chop("left")), false);
@@ -173,7 +179,7 @@ test("чистый удар поднимает счёт и не глушит", (
   const clean = scoreWithBranch(state, null);
   const before: TreeGameState = {
     ...state,
-    players: { ...state.players, p1: { score: clean, stunnedUntil: 0 } },
+    players: { ...state.players, p1: { score: clean, stunnedUntil: 0, stunned: false } },
   };
 
   const after = treegame.applyAction(before, "p1", chop("left"));
@@ -187,7 +193,7 @@ test("удар со стороны ветки глушит и не даёт оч
   const index = scoreWithBranch(state, "left");
   const before: TreeGameState = {
     ...state,
-    players: { ...state.players, p1: { score: index, stunnedUntil: 0 } },
+    players: { ...state.players, p1: { score: index, stunnedUntil: 0, stunned: false } },
   };
 
   const at = Date.now();
@@ -206,7 +212,7 @@ test("удар с чистой стороны того же сегмента п�
   const index = scoreWithBranch(state, "left");
   const before: TreeGameState = {
     ...state,
-    players: { ...state.players, p1: { score: index, stunnedUntil: 0 } },
+    players: { ...state.players, p1: { score: index, stunnedUntil: 0, stunned: false } },
   };
 
   const after = treegame.applyAction(before, "p1", chop("right"));
@@ -220,7 +226,114 @@ test("удар одного игрока не трогает другого", ()
   const after = treegame.applyAction(state, "p1", chop("left"));
 
   assert.deepEqual(after.players.p2, state.players.p2);
-  assert.deepEqual(state.players.p1, { score: 0, stunnedUntil: 0 }, "исходное состояние изменено");
+  assert.deepEqual(
+    state.players.p1,
+    { score: 0, stunnedUntil: 0, stunned: false },
+    "исходное состояние изменено"
+  );
+});
+
+// --- флаг оглушения для соперника ----------------------------------------
+
+/*
+ * Соперник рисуется тенью на собственном стволе игрока, и его оглушение —
+ * главное, что эта тень должна показывать. Значит «оглушён прямо сейчас»
+ * обязано лежать в состоянии партии явным полем: сравнивать stunnedUntil
+ * с часами телефона нельзя, они врут.
+ */
+
+test("удар в ветку поднимает публичный флаг оглушения", () => {
+  const state = newState();
+  const index = scoreWithBranch(state, "left");
+  const before: TreeGameState = {
+    ...state,
+    players: { ...state.players, p1: { score: index, stunnedUntil: 0, stunned: false } },
+  };
+
+  const after = treegame.applyAction(before, "p1", chop("left"));
+
+  assert.equal(after.players.p1.stunned, true);
+  // Соперника чужая ошибка не задевает.
+  assert.equal(after.players.p2.stunned, false);
+});
+
+test("чистый удар флаг не поднимает", () => {
+  const state = newState();
+  const clean = scoreWithBranch(state, null);
+  const before: TreeGameState = {
+    ...state,
+    players: { ...state.players, p1: { score: clean, stunnedUntil: 0, stunned: false } },
+  };
+
+  assert.equal(treegame.applyAction(before, "p1", chop("left")).players.p1.stunned, false);
+});
+
+test("удар после оглушения снимает свой флаг", () => {
+  const state = newState();
+  const clean = scoreWithBranch(state, null);
+  const recovered: TreeGameState = {
+    ...state,
+    players: {
+      ...state.players,
+      p1: { score: clean, stunnedUntil: Date.now() - 1, stunned: true },
+    },
+  };
+
+  const after = treegame.applyAction(recovered, "p1", chop("left"));
+
+  assert.equal(after.players.p1.stunned, false);
+  assert.equal(after.players.p1.score, clean + 1);
+});
+
+test("истёкшее оглушение гаснет и на чужом ходу", () => {
+  const state = newState();
+  const stale: TreeGameState = {
+    ...state,
+    players: {
+      ...state.players,
+      p1: { score: 0, stunnedUntil: Date.now() - 1, stunned: true },
+    },
+  };
+
+  // p1 оглушён и потому ничего не делает — флаг обязан погаснуть сам,
+  // иначе соперник видит красную тень до его следующего удара.
+  const after = treegame.applyAction(stale, "p2", chop("left"));
+
+  assert.equal(after.players.p1.stunned, false);
+  assert.equal(after.players.p1.score, 0, "чужой ход сдвинул счёт");
+});
+
+test("не истёкшее оглушение чужой ход не гасит", () => {
+  const state = newState();
+  const stunned: TreeGameState = {
+    ...state,
+    players: {
+      ...state.players,
+      p1: { score: 0, stunnedUntil: Date.now() + 5000, stunned: true },
+    },
+  };
+
+  assert.equal(
+    treegame.applyAction(stunned, "p2", chop("left")).players.p1.stunned,
+    true
+  );
+});
+
+test("флаг оглушения идёт вместе со счётом — тени больше нечего знать", () => {
+  const state = newState();
+  const index = scoreWithBranch(state, "left");
+  const before: TreeGameState = {
+    ...state,
+    players: { ...state.players, p1: { score: index, stunnedUntil: 0, stunned: false } },
+  };
+
+  // Всё, что нужно нарисовать соперника: его высота на общем стволе
+  // и признак ошибки. Оба поля публичные и приезжают одним состоянием.
+  const rival = treegame.applyAction(before, "p1", chop("left")).players.p1;
+
+  assert.deepEqual(Object.keys(rival).sort(), ["score", "stunned", "stunnedUntil"]);
+  assert.equal(rival.score, index);
+  assert.equal(rival.stunned, true);
 });
 
 // --- ствол по ходу партии ------------------------------------------------
@@ -305,7 +418,10 @@ test("партия кончается на целевом счёте", () => {
 
   const won: TreeGameState = {
     ...state,
-    players: { ...state.players, p2: { score: state.targetScore, stunnedUntil: 0 } },
+    players: {
+      ...state.players,
+      p2: { score: state.targetScore, stunnedUntil: 0, stunned: false },
+    },
   };
 
   assert.deepEqual(treegame.checkGameOver(won), { winnerId: "p2", reason: "target" });
@@ -315,7 +431,10 @@ test("на счёте меньше целевого партия продолж�
   const state = newState();
   const almost: TreeGameState = {
     ...state,
-    players: { ...state.players, p1: { score: state.targetScore - 1, stunnedUntil: 0 } },
+    players: {
+      ...state.players,
+      p1: { score: state.targetScore - 1, stunnedUntil: 0, stunned: false },
+    },
   };
 
   assert.equal(treegame.checkGameOver(almost), null);
@@ -355,7 +474,7 @@ test("партия доигрывается до победы через вет�
       ...state,
       players: {
         ...state.players,
-        p1: { score: state.players.p1.score, stunnedUntil: Date.now() - 1 },
+        p1: { score: state.players.p1.score, stunnedUntil: Date.now() - 1, stunned: false },
       },
     };
 

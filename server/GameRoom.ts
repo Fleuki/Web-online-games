@@ -8,11 +8,11 @@ import { Phase, Player, RoomState } from "./state";
 const MAX_NAME_LENGTH = 16;
 
 /**
- * Комнату заводит сервер по запросу из лобби, поэтому какое-то время она
- * стоит пустая. Если за это время не пришёл никто — ссылку не открыли,
- * и держать комнату незачем.
+ * Комната живёт, пока в ней кто-то есть. Пустая — ещё пять минут: столько
+ * же ждёт только что созданная комната, за которой не пришли по ссылке,
+ * и столько же есть у двоих, чтобы вернуться после общего обрыва связи.
  */
-const ABANDONED_ROOM_TIMEOUT_MS = 5 * 60 * 1000;
+const EMPTY_ROOM_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface JoinOptions {
   name?: string;
@@ -41,7 +41,12 @@ function sanitizeName(raw: unknown): string {
 /**
  * Ядро комнаты.
  *
- * Про конкретные игры не знает ничего: берёт модуль из реестра и дёргает
+ * Разделено на два уровня. Комната — постоянный контейнер: игроки, ники,
+ * хост, счёт за сессию. Партия — временная сессия внутри неё: выбранный
+ * модуль и его состояние. Конец партии комнату не разрушает, игроков
+ * никуда не выкидывает и счёт не обнуляет.
+ *
+ * Про конкретные игры ядро не знает ничего: берёт модуль из реестра и дёргает
  * createState / validateAction / applyAction / checkGameOver. Всё, что
  * приходит от клиента, — намерение; состояние меняется только здесь.
  */
@@ -49,7 +54,7 @@ export class GameRoom extends Room<RoomState> {
   private game!: GameModule<any>;
   /** Состояние партии в виде обычного объекта; в state уезжает как JSON. */
   private gameState: unknown = null;
-  private abandonedTimer?: NodeJS.Timeout;
+  private emptyTimer?: NodeJS.Timeout;
 
   async onCreate(options: CreateOptions = {}) {
     const gameId = options.gameId?.trim() || config.defaultGame;
@@ -59,40 +64,51 @@ export class GameRoom extends Room<RoomState> {
       throw new ServerError(4004, `Неизвестная игра: "${gameId}"`);
     }
 
-    this.game = game;
-    this.maxClients = game.meta.maxPlayers;
+    /*
+     * Комнатой распоряжаемся сами. autoDispose закрыл бы её в момент, когда
+     * последний клиент отвалился, — а комната к этому моменту хранит счёт
+     * за сессию, и обоим ещё возвращаться.
+     */
+    this.autoDispose = false;
 
-    // Свой короткий код вместо сгенерированного Colyseus id.
-    // listing сохраняется после onCreate, так что подмена безопасна.
-    this.roomId = await generateRoomCode();
+    await this.assignRoomCode();
 
     const state = new RoomState();
-    state.gameId = game.meta.id;
-    state.gameName = game.meta.name;
     state.reconnectTimeout = config.reconnectTimeout;
     this.setState(state);
 
-    this.setMetadata({ gameId: game.meta.id, gameName: game.meta.name });
+    this.selectGame(game);
 
-    this.onMessage("start", (client) => this.handleStart(client));
+    this.onMessage("select-game", (client, message: { gameId?: unknown }) =>
+      this.handleSelectGame(client, message)
+    );
+    this.onMessage("ready", (client, ready: unknown) =>
+      this.handleReady(client, ready)
+    );
+    this.onMessage("to-lobby", (client) => this.handleToLobby(client));
     this.onMessage("action", (client, action: GameAction) =>
       this.handleAction(client, action)
     );
 
-    this.abandonedTimer = setTimeout(() => {
-      if (this.clients.length === 0) {
-        console.log(`[room ${this.roomId}] никто не пришёл, закрываю`);
-        this.disconnect();
-      }
-    }, ABANDONED_ROOM_TIMEOUT_MS);
+    this.scheduleClose();
 
     console.log(`[room ${this.roomId}] создана, игра "${game.meta.id}"`);
   }
 
+  /**
+   * Свой короткий код вместо сгенерированного Colyseus id.
+   * listing сохраняется после onCreate, так что подмена безопасна.
+   *
+   * Отдельным методом — код выдаёт матчмейкер, а в тестах ядра его нет.
+   */
+  protected async assignRoomCode() {
+    this.roomId = await generateRoomCode();
+  }
+
   onJoin(client: Client, options: JoinOptions = {}) {
-    // Пришёл первый — дальше комнатой распоряжается autoDispose.
-    clearTimeout(this.abandonedTimer);
-    this.abandonedTimer = undefined;
+    // Пока в комнате кто-то есть, закрывать её незачем.
+    clearTimeout(this.emptyTimer);
+    this.emptyTimer = undefined;
 
     const player = new Player();
     player.sessionId = client.sessionId;
@@ -106,24 +122,37 @@ export class GameRoom extends Room<RoomState> {
       this.state.hostId = client.sessionId;
     }
 
+    /*
+     * Место освобождается только когда кто-то ушёл, так что зайти на экран
+     * результатов можно лишь на чужое место. Итог партии, которую новичок
+     * не играл, ему ни о чём не говорит — уводим комнату к выбору игры.
+     */
+    if (this.state.phase === Phase.RESULTS) {
+      this.toLobby();
+    }
+
     console.log(`[room ${this.roomId}] вошёл ${player.name} (${client.sessionId})`);
   }
 
   /**
    * Игрок пропал. Сразу не удаляем: экран гаснет, сеть моргает, приложение
-   * сворачивается — это норма, а не выход из игры.
+   * сворачивается — это норма, а не выход из игры. Ждём его в любой фазе,
+   * не только внутри партии: в лобби и на экране результатов ему тоже есть
+   * куда возвращаться.
    */
   async onLeave(client: Client, consented: boolean) {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
 
-    // Осознанный выход и выход после конца партии ждать не нужно.
-    if (consented || this.state.phase === Phase.FINISHED) {
-      this.removePlayer(client.sessionId, consented);
+    if (consented) {
+      this.removePlayer(client.sessionId, true);
+      this.scheduleClose();
       return;
     }
 
     player.connected = false;
+    this.scheduleClose();
+
     console.log(
       `[room ${this.roomId}] ${player.name} отвалился, ждём ${config.reconnectTimeout} c`
     );
@@ -132,6 +161,9 @@ export class GameRoom extends Room<RoomState> {
       await this.allowReconnection(client, config.reconnectTimeout);
       player.connected = true;
       console.log(`[room ${this.roomId}] ${player.name} вернулся`);
+
+      // Готовность он подтвердил до обрыва — она в силе.
+      this.tryStartMatch();
     } catch {
       // Не вернулся за отведённое время.
       console.log(`[room ${this.roomId}] ${player.name} не вернулся`);
@@ -140,32 +172,137 @@ export class GameRoom extends Room<RoomState> {
   }
 
   onDispose() {
-    clearTimeout(this.abandonedTimer);
+    clearTimeout(this.emptyTimer);
     console.log(`[room ${this.roomId}] закрыта`);
+  }
+
+  // --- жизнь комнаты ------------------------------------------------------
+
+  /**
+   * Ставит игру комнаты и подгоняет под неё всё остальное.
+   * Вызывается при создании и при смене игры хостом.
+   */
+  private selectGame(game: GameModule<any>) {
+    this.game = game;
+    this.maxClients = game.meta.maxPlayers;
+
+    this.state.gameId = game.meta.id;
+    this.state.gameName = game.meta.name;
+
+    this.setMetadata({ gameId: game.meta.id, gameName: game.meta.name });
+  }
+
+  private handleSelectGame(client: Client, message: { gameId?: unknown }) {
+    if (this.state.phase === Phase.IN_GAME) return;
+    if (client.sessionId !== this.state.hostId) return;
+
+    const gameId = typeof message?.gameId === "string" ? message.gameId.trim() : "";
+    const game = getGame(gameId);
+    if (!game || game.meta.id === this.state.gameId) return;
+
+    // Игра, в которую уже собравшиеся не поместятся, комнате не подходит.
+    if (this.state.players.size > game.meta.maxPlayers) return;
+
+    this.selectGame(game);
+
+    // Выбор поменялся — согласие на прошлую игру больше не в счёт.
+    // И экран результатов прошлой партии тут же теряет смысл.
+    this.toLobby();
+
+    console.log(`[room ${this.roomId}] хост выбрал игру "${game.meta.id}"`);
+  }
+
+  /**
+   * Готовность к следующей партии. Работает и в лобби, и на экране
+   * результатов: «Играть снова» — та же кнопка, только другой подписью.
+   */
+  private handleReady(client: Client, ready: unknown) {
+    if (this.state.phase === Phase.IN_GAME) return;
+
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    player.ready = ready === true;
+    this.tryStartMatch();
+  }
+
+  /** «Другая игра»: возврат к выбору внутри комнаты, без выхода из неё. */
+  private handleToLobby(client: Client) {
+    if (this.state.phase !== Phase.RESULTS) return;
+    if (!this.state.players.has(client.sessionId)) return;
+
+    this.toLobby();
+  }
+
+  private toLobby() {
+    this.state.phase = Phase.LOBBY;
+    this.state.winnerId = "";
+    this.state.gameOverReason = "";
+
+    this.gameState = null;
+    this.syncGameState();
+    this.clearReady();
+    this.unlock();
+  }
+
+  /**
+   * Пустая комната закрывается не сразу: пять минут — это и «за ссылкой
+   * никто не пришёл», и «у обоих одновременно моргнул интернет».
+   */
+  private scheduleClose() {
+    clearTimeout(this.emptyTimer);
+    this.emptyTimer = setTimeout(() => {
+      if (this.clients.length > 0) return;
+      console.log(`[room ${this.roomId}] пустая, закрываю`);
+      this.disconnect();
+    }, EMPTY_ROOM_TIMEOUT_MS);
   }
 
   // --- игровой цикл -------------------------------------------------------
 
-  private handleStart(client: Client) {
-    if (this.state.phase !== Phase.LOBBY) return;
-    if (client.sessionId !== this.state.hostId) return;
+  /**
+   * Партия стартует сама, как только все на месте и все готовы.
+   * Ни в лобби, ни с экрана результатов её не запускает кто-то один.
+   */
+  private tryStartMatch() {
+    if (this.state.phase === Phase.IN_GAME) return;
 
     const players = this.connectedPlayers();
     const { minPlayers, maxPlayers } = this.game.meta;
     if (players.length < minPlayers || players.length > maxPlayers) return;
 
+    // Отвалившийся не готов, даже если нажимал кнопку до обрыва:
+    // начинать партию, пока он возвращается, нечестно.
+    let allReady = true;
+    this.state.players.forEach((player) => {
+      if (!player.ready || !player.connected) allReady = false;
+    });
+    if (!allReady) return;
+
+    this.startMatch(players);
+  }
+
+  private startMatch(players: GamePlayer[]) {
     this.gameState = this.game.createState(players);
     this.syncGameState();
-    this.state.phase = Phase.PLAYING;
+
+    this.state.phase = Phase.IN_GAME;
+    this.state.matchNumber += 1;
+    this.state.winnerId = "";
+    this.state.gameOverReason = "";
+    this.clearReady();
 
     // Пока идёт партия, по коду больше никто не зайдёт.
     this.lock();
 
-    console.log(`[room ${this.roomId}] партия началась`);
+    console.log(
+      `[room ${this.roomId}] партия ${this.state.matchNumber} началась ` +
+        `("${this.state.gameId}")`
+    );
   }
 
   private handleAction(client: Client, action: GameAction) {
-    if (this.state.phase !== Phase.PLAYING) return;
+    if (this.state.phase !== Phase.IN_GAME) return;
     if (!action || typeof action.type !== "string") return;
 
     const playerId = client.sessionId;
@@ -179,20 +316,35 @@ export class GameRoom extends Room<RoomState> {
 
     const result = this.game.checkGameOver(this.gameState);
     if (result) {
-      this.finish(result.winnerId, result.reason);
+      this.finishMatch(result.winnerId, result.reason);
     }
   }
 
-  private finish(winnerId: string | null, reason: string) {
-    if (this.state.phase === Phase.FINISHED) return;
+  /**
+   * Партия окончена — комната переходит к результатам и остаётся жить.
+   * Победа уходит в счёт за сессию, готовность сбрасывается: следующую
+   * партию обоим подтверждать заново.
+   */
+  private finishMatch(winnerId: string | null, reason: string) {
+    if (this.state.phase !== Phase.IN_GAME) return;
 
-    this.state.phase = Phase.FINISHED;
+    this.state.phase = Phase.RESULTS;
     this.state.winnerId = winnerId ?? "";
     this.state.gameOverReason = reason;
-    this.lock();
+
+    if (winnerId) {
+      const winner = this.state.players.get(winnerId);
+      if (winner) winner.wins += 1;
+    }
+
+    this.clearReady();
+
+    // Партии больше нет — освободившееся место снова открыто.
+    this.unlock();
 
     console.log(
-      `[room ${this.roomId}] партия окончена: ${reason}, победитель "${winnerId ?? "нет"}"`
+      `[room ${this.roomId}] партия окончена: ${reason}, ` +
+        `победитель "${winnerId ?? "нет"}"`
     );
   }
 
@@ -200,6 +352,12 @@ export class GameRoom extends Room<RoomState> {
 
   private syncGameState() {
     this.state.gameState = JSON.stringify(this.gameState ?? null);
+  }
+
+  private clearReady() {
+    this.state.players.forEach((player) => {
+      player.ready = false;
+    });
   }
 
   private connectedPlayers(): GamePlayer[] {
@@ -211,25 +369,32 @@ export class GameRoom extends Room<RoomState> {
   }
 
   /**
-   * Убирает игрока насовсем. Во время партии это поражение:
-   * победа достаётся тому, кто остался.
+   * Убирает игрока насовсем. Во время партии это поражение: победа
+   * достаётся тому, кто остался. Комната при этом не закрывается —
+   * оставшийся ждёт нового соперника на том же коде.
    */
   private removePlayer(sessionId: string, consented: boolean) {
-    const wasPlaying = this.state.phase === Phase.PLAYING;
+    const wasPlaying = this.state.phase === Phase.IN_GAME;
 
     this.state.players.delete(sessionId);
 
     if (wasPlaying) {
       const remaining = [...this.state.players.keys()];
-      this.finish(
+      this.finishMatch(
         remaining.length === 1 ? remaining[0] : null,
         consented ? "resign" : "forfeit"
       );
     }
 
-    // Хост ушёл до начала партии — передаём права следующему.
+    // Хост ушёл — передаём права следующему.
     if (this.state.hostId === sessionId) {
       this.state.hostId = this.state.players.keys().next().value ?? "";
     }
+
+    // Ждать готовности от того, кого уже нет, не надо.
+    this.clearReady();
+
+    // Место освободилось: по коду снова можно зайти.
+    this.unlock();
   }
 }

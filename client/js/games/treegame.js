@@ -36,8 +36,16 @@
     axeHead: "#d9dee5",
     axeHandle: "#9c6b3a",
     stun: "#ff4a3d",
-    chip: "#c98d51"
+    chip: "#c98d51",
+
+    /* Тень соперника: приглушённая, чтобы не спорить со своим дровосеком. */
+    shadow: "#33456b",
+    /* На оглушении она, наоборот, обязана кричать — цвет берём в полную силу. */
+    shadowStun: "#e8392a"
   };
+
+  /** Непрозрачность тени в покое. */
+  var SHADOW_ALPHA = 0.4;
 
   var CHOP_MS = 130;   // взмах топора
   var SHIFT_MS = 110;  // ствол оседает на сегмент
@@ -157,6 +165,15 @@
       lastChopAt: 0,
       seenStun: 0,
 
+      /*
+       * Соперник. Ствол детерминирован из общего сида, то есть дерево у нас
+       * физически одно, — поэтому его счёт это готовая высота на моём стволе,
+       * и синхронизировать для тени нечего.
+       */
+      rivalScore: -1,
+      rivalStunUntil: 0,
+      seenRivalStun: 0,
+
       side: "right",
       chopAt: 0,
       shiftAt: 0,
@@ -203,7 +220,7 @@
   // --- ввод ---------------------------------------------------------------
 
   function chop(side) {
-    if (!view.state || view.gameOver) return;
+    if (!view.state) return;
     if (now() < view.stunUntil) return; // оглушён — управление потеряно
     if (view.score >= view.state.targetScore) return;
 
@@ -273,7 +290,6 @@
   function reconcile(state, api) {
     view.state = state;
     view.players = api.players;
-    view.gameOver = api.isFinished;
 
     var mine = state.players[api.myId];
     if (!mine) return;
@@ -297,6 +313,42 @@
       // Предсказание не сбылось, и новых ударов давно не было.
       view.score = mine.score;
     }
+
+    reconcileRival(state);
+  }
+
+  /**
+   * Соперник. Счёт берём как есть — это и есть высота его тени на моём
+   * стволе. Оглушение приходит публичным флагом, но гасить его по нему
+   * нельзя: состояние партии уезжает только на чужих действиях, а
+   * оглушённый по определению ничего не делает. Поэтому начало берём с
+   * сервера, а конец досчитываем у себя по stunDurationMs.
+   */
+  function reconcileRival(state) {
+    var id = rivalId();
+    var rival = id ? state.players[id] : null;
+
+    if (!rival) {
+      view.rivalScore = -1;
+      view.rivalStunUntil = 0;
+      return;
+    }
+
+    view.rivalScore = rival.score;
+
+    // stunnedUntil только растёт — по нему и ловим каждое новое оглушение,
+    // включая второе подряд, на котором флаг не успевает погаснуть.
+    if (rival.stunnedUntil > view.seenRivalStun) {
+      view.seenRivalStun = rival.stunnedUntil;
+      view.rivalStunUntil = now() + state.stunDurationMs;
+    }
+
+    // Сервер говорит, что он уже в порядке, — верим сразу.
+    if (!rival.stunned) view.rivalStunUntil = 0;
+  }
+
+  function rivalStunned() {
+    return now() < view.rivalStunUntil;
   }
 
   // --- отрисовка ----------------------------------------------------------
@@ -438,6 +490,200 @@
       ctx.rect(left, bottomY - m.segH, m.trunkW, m.segH);
       stroke(ctx, 3);
     }
+  }
+
+  // --- тень соперника -----------------------------------------------------
+
+  /*
+   * Ствол детерминирован из общего сида: у обоих игроков это буквально одно
+   * и то же дерево. Значит счёт соперника — не абстрактное число сверху, а
+   * конкретный сегмент моего же ствола, и его можно просто нарисовать.
+   */
+
+  /**
+   * Нижний край числового блока сверху: панель соперника, свой счёт и
+   * подпись «из N». Выше него тень не поднимается — там её место занимает
+   * маркер, так что подмена происходит ровно на одной линии.
+   */
+  function hudBottom() {
+    return 118;
+  }
+
+  /** Высота тени: сегмент соперника на моём стволе, с той же осадкой. */
+  function shadowFootY(m) {
+    var slide = m.segH * (1 - easeOut(progress(view.shiftAt, SHIFT_MS)));
+    return m.groundY - (view.rivalScore - view.score) * m.segH + slide;
+  }
+
+  function shadowHeight(m) {
+    return m.segH * 1.05;
+  }
+
+  /** Влезает ли фигура целиком — иначе вместо неё уходит маркер к краю. */
+  function shadowOnScreen(m) {
+    if (view.rivalScore < 0) return false;
+    var footY = shadowFootY(m);
+    return (
+      footY - shadowHeight(m) >= hudBottom() + 6 &&
+      footY <= m.groundY + m.groundH * 0.25
+    );
+  }
+
+  /**
+   * Полупрозрачный дровосек соперника на моём стволе.
+   *
+   * Силуэт без обводки и приглушённым цветом: он должен читаться боковым
+   * зрением, но не спорить за внимание с собственным персонажем. Пока это
+   * не оглушение — тогда он обязан кричать.
+   */
+  function drawShadow(ctx, m) {
+    if (!shadowOnScreen(m)) return;
+
+    var stunned = rivalStunned();
+    var footY = shadowFootY(m);
+    var h = shadowHeight(m);
+    var w = h * 0.5;
+
+    ctx.save();
+
+    // Тряска — первое, что ловит взгляд. В отличие от собственной, она не
+    // затухает: оглушение соперника видно всё время, пока оно длится.
+    if (stunned) {
+      var mag = w * 0.22;
+      ctx.translate(Math.sin(now() / 16) * mag, Math.cos(now() / 11) * mag * 0.4);
+      drawStunGlow(ctx, m.cx, footY - h * 0.55, h * 1.3);
+    }
+
+    drawShadowFigure(
+      ctx,
+      m.cx,
+      footY,
+      h,
+      stunned ? COLORS.shadowStun : COLORS.shadow,
+      stunned ? stunAlpha() : SHADOW_ALPHA
+    );
+
+    ctx.restore();
+  }
+
+  /**
+   * Пульс непрозрачности на оглушении.
+   *
+   * Держим у верхней границы: полупрозрачный красный поверх коричневого
+   * ствола или зелёной травы уходит в грязно-бурый, а вспышка должна
+   * читаться мгновенно и боковым зрением.
+   */
+  function stunAlpha() {
+    return 0.8 + 0.2 * Math.sin(now() / 90);
+  }
+
+  /**
+   * Красноватое пятно за фигурой — то, что видно, даже не глядя туда.
+   * Оно же отличает оглушённую тень от собственного дровосека: рубашка
+   * у него тоже красная, а вот свечения вокруг не бывает.
+   */
+  function drawStunGlow(ctx, x, y, radius) {
+    var glow = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    glow.addColorStop(0, "rgba(232, 57, 42, 0.62)");
+    glow.addColorStop(0.55, "rgba(232, 57, 42, 0.34)");
+    glow.addColorStop(1, "rgba(232, 57, 42, 0)");
+
+    ctx.save();
+    ctx.globalAlpha = 0.55 + 0.3 * Math.sin(now() / 90);
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** Силуэт дровосека: те же пропорции, что у своего, но без деталей. */
+  function drawShadowFigure(ctx, x, footY, h, color, alpha) {
+    var w = h * 0.5;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+
+    // Ноги
+    roundRect(ctx, x - w * 0.36, footY - h * 0.3, w * 0.28, h * 0.3, w * 0.1);
+    ctx.fill();
+    roundRect(ctx, x + w * 0.08, footY - h * 0.3, w * 0.28, h * 0.3, w * 0.1);
+    ctx.fill();
+
+    // Туловище
+    roundRect(ctx, x - w * 0.44, footY - h * 0.68, w * 0.88, h * 0.42, w * 0.18);
+    ctx.fill();
+
+    // Голова и шапка
+    ctx.beginPath();
+    ctx.arc(x, footY - h * 0.82, w * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, footY - h * 0.88, w * 0.34, Math.PI, Math.PI * 2);
+    ctx.fill();
+
+    // Топор: без него силуэт читается как просто человек на дереве.
+    ctx.save();
+    ctx.translate(x + w * 0.42, footY - h * 0.52);
+    ctx.rotate(0.6);
+    roundRect(ctx, -w * 0.07, -h * 0.4, w * 0.14, h * 0.44, w * 0.06);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.07, -h * 0.4);
+    ctx.lineTo(w * 0.3, -h * 0.44);
+    ctx.lineTo(w * 0.3, -h * 0.26);
+    ctx.lineTo(-w * 0.07, -h * 0.24);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  /**
+   * Соперник ушёл за край экрана — маркер со стрелкой и разницей в счёте.
+   * Сверху, если он оторвался; снизу, если отстал.
+   */
+  function drawRivalMarker(ctx, m) {
+    if (view.rivalScore < 0 || shadowOnScreen(m)) return;
+
+    var ahead = view.rivalScore > view.score;
+    var diff = Math.abs(view.rivalScore - view.score);
+    var stunned = rivalStunned();
+
+    var text = (ahead ? "\u25b2 +" : "\u25bc \u2212") + diff;
+    var padH = 12;
+    var height = 30;
+
+    ctx.font = "800 15px system-ui, -apple-system, sans-serif";
+    var width = ctx.measureText(text).width + padH * 2;
+
+    var x = m.cx - width / 2;
+    var y = ahead ? hudBottom() + 6 : m.height - height - 64;
+
+    ctx.save();
+
+    if (stunned) {
+      var mag = 7;
+      ctx.translate(Math.sin(now() / 16) * mag, Math.cos(now() / 11) * mag * 0.5);
+      drawStunGlow(ctx, m.cx, y + height / 2, width * 0.85);
+    }
+
+    // Полупрозрачный он только в покое: на оглушении цвет идёт в полную
+    // силу, иначе красный смешивается с фоном и перестаёт читаться.
+    ctx.globalAlpha = stunned ? 1 : 0.55;
+    ctx.fillStyle = stunned ? COLORS.shadowStun : COLORS.shadow;
+    roundRect(ctx, x, y, width, height, height / 2);
+    ctx.fill();
+
+    ctx.globalAlpha = stunned ? 1 : 0.85;
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, m.cx, y + height / 2 + 1);
+
+    ctx.restore();
   }
 
   function drawLumberjack(ctx, m) {
@@ -638,7 +884,14 @@
     return null;
   }
 
-  /** Счёт соперника сверху, свой — крупно под ним. */
+  /**
+   * Числовой счёт сверху, свой — под ним.
+   *
+   * Основной индикатор теперь тень на стволе: она показывает и позицию
+   * соперника, и его оглушение, не отрывая взгляда от собственной рубки.
+   * Цифры остаются для точности — и намеренно приглушены, чтобы не
+   * перетягивать внимание обратно наверх.
+   */
   function drawHud(ctx, m) {
     if (!view.state) return;
 
@@ -648,57 +901,56 @@
     var rivalScore = rival && view.state.players[rival] ? view.state.players[rival].score : 0;
 
     var padTop = 10;
-    var panelH = 46;
-    var panelW = clamp(m.width - 24, 300, 420);
+    var panelH = 40;
+    var panelW = clamp(m.width - 24, 280, 380);
     var panelX = (m.width - panelW) / 2;
 
-    ctx.fillStyle = "rgba(20,18,16,0.62)";
+    ctx.save();
+    ctx.globalAlpha = 0.62;
+
+    ctx.fillStyle = "rgba(20,18,16,0.4)";
     roundRect(ctx, panelX, padTop, panelW, panelH, 12);
     ctx.fill();
 
-    ctx.font = "600 14px system-ui, -apple-system, sans-serif";
+    ctx.font = "600 13px system-ui, -apple-system, sans-serif";
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
-    ctx.fillStyle = "#dbe6f2";
+    ctx.fillStyle = "#cfdcea";
     var name = rivalPlayer ? rivalPlayer.name : "Соперник";
     if (name.length > 12) name = name.slice(0, 11) + "…";
-    ctx.fillText(name, panelX + 14, padTop + panelH / 2);
+    ctx.fillText(name, panelX + 12, padTop + panelH / 2 - 2);
 
     ctx.textAlign = "right";
-    ctx.font = "800 20px system-ui, -apple-system, sans-serif";
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(rivalScore + " / " + target, panelX + panelW - 14, padTop + panelH / 2);
+    ctx.font = "700 16px system-ui, -apple-system, sans-serif";
+    ctx.fillStyle = "#eaf1f8";
+    ctx.fillText(rivalScore + " / " + target, panelX + panelW - 12, padTop + panelH / 2 - 2);
 
     // Полоска прогресса соперника — видно, насколько он близко к победе.
-    var trackW = panelW - 28;
-    ctx.fillStyle = "rgba(255,255,255,0.18)";
-    roundRect(ctx, panelX + 14, padTop + panelH - 9, trackW, 5, 3);
+    var trackW = panelW - 24;
+    ctx.fillStyle = "rgba(255,255,255,0.14)";
+    roundRect(ctx, panelX + 12, padTop + panelH - 8, trackW, 4, 2);
     ctx.fill();
     ctx.fillStyle = COLORS.rival;
-    roundRect(ctx, panelX + 14, padTop + panelH - 9, trackW * Math.min(1, rivalScore / target), 5, 3);
+    roundRect(ctx, panelX + 12, padTop + panelH - 8, trackW * Math.min(1, rivalScore / target), 4, 2);
     ctx.fill();
 
     // Свой счёт.
     ctx.textAlign = "center";
-    ctx.font = "800 " + Math.round(clamp(m.width * 0.14, 40, 64)) + "px system-ui, sans-serif";
-    ctx.lineWidth = 6;
+    ctx.font = "800 " + Math.round(clamp(m.width * 0.1, 30, 46)) + "px system-ui, sans-serif";
+    ctx.lineWidth = 5;
     ctx.strokeStyle = COLORS.outline;
     ctx.fillStyle = "#ffffff";
-    var y = padTop + panelH + 44;
+    var y = padTop + panelH + 30;
     ctx.strokeText(String(view.score), m.cx, y);
     ctx.fillText(String(view.score), m.cx, y);
 
-    ctx.font = "600 13px system-ui, -apple-system, sans-serif";
-    ctx.lineWidth = 4;
-    ctx.strokeText("из " + target, m.cx, y + 30);
+    ctx.font = "600 12px system-ui, -apple-system, sans-serif";
+    ctx.lineWidth = 3.5;
+    ctx.strokeText("из " + target, m.cx, y + 24);
     ctx.fillStyle = "#eef5ff";
-    ctx.fillText("из " + target, m.cx, y + 30);
-  }
+    ctx.fillText("из " + target, m.cx, y + 24);
 
-  function drawGameOver(ctx, m) {
-    if (!view.gameOver) return;
-    ctx.fillStyle = "rgba(16,21,28,0.55)";
-    ctx.fillRect(0, 0, m.width, m.height);
+    ctx.restore();
   }
 
   function frame() {
@@ -720,16 +972,19 @@
 
     drawSky(ctx, m);
     drawTrunk(ctx, m);
+    // Тень стоит на стволе, поэтому едет вместе с ним и уходит за землю.
+    drawShadow(ctx, m);
     drawGround(ctx, m);
     drawLumberjack(ctx, m);
     drawChips(ctx);
 
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
     drawStun(ctx, m);
-    drawGameOver(ctx, m);
     drawHud(ctx, m);
+    // Маркер — в экранных координатах: он про край экрана, а не про дерево.
+    drawRivalMarker(ctx, m);
 
-    if (view.hint && (view.score > 0 || view.gameOver)) {
+    if (view.hint && view.score > 0) {
       view.hint.remove();
       view.hint = null;
     }

@@ -146,6 +146,21 @@ button.secondary:active:not(:disabled) {
   background: var(--line);
 }
 
+/* Выход из комнаты — не то, что стоит предлагать наравне с игрой. */
+button.quiet {
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  min-height: 40px;
+  margin-top: 18px;
+}
+
+button.quiet:active:not(:disabled) {
+  background: none;
+  color: var(--text);
+}
+
 .row {
   display: flex;
   gap: 8px;
@@ -241,6 +256,126 @@ button.secondary:active:not(:disabled) {
   border: 1px solid var(--line);
   color: var(--muted);
   font-size: 12px;
+}
+
+.tag.ok {
+  border-color: var(--accent);
+  color: #a8dfb5;
+}
+
+/* --- выбор игры внутри комнаты --- */
+
+.games {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.game-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.game-option:last-of-type {
+  margin-bottom: 0;
+}
+
+.game-option.selected {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.game-option.pickable {
+  cursor: pointer;
+}
+
+.game-option.pickable:active {
+  background: var(--line);
+}
+
+.game-icon {
+  flex: none;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.game-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* --- счёт за сессию комнаты --- */
+
+.tally {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.tally-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tally-name:first-child {
+  text-align: right;
+}
+
+.tally-score {
+  flex: none;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+/* --- результаты партии --- */
+
+.result-card {
+  text-align: center;
+}
+
+.result-match {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.result-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.result-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.result-card .tally {
+  margin-top: 16px;
 }
 
 .slot-empty {
@@ -398,8 +533,7 @@ button.secondary:active:not(:disabled) {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-#game-step > .status,
-#game-step > button {
+#game-step > .status {
   position: relative;
   z-index: 1;
 }
