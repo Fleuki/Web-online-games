@@ -11,11 +11,22 @@ const modules: GameModule<any>[] = [treegame];
 
 const registry = new Map<string, GameModule<any>>();
 
-for (const mod of modules) {
+/**
+ * Кладёт модуль в реестр.
+ *
+ * Список игр по-прежнему один — modules выше. Отдельная функция нужна,
+ * чтобы тесты ядра могли подсунуть комнате фиктивную игру и проверять
+ * саму комнату, а не поведение конкретной настоящей игры.
+ */
+export function registerGame(mod: GameModule<any>): void {
   if (registry.has(mod.meta.id)) {
     throw new Error(`Дублирующийся id игрового модуля: "${mod.meta.id}"`);
   }
   registry.set(mod.meta.id, mod);
+}
+
+for (const mod of modules) {
+  registerGame(mod);
 }
 
 export function getGame(id: string): GameModule<any> | undefined {

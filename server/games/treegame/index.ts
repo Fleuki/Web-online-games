@@ -10,6 +10,14 @@ export interface TreeGamePlayer {
   score: number;
   /** Время сервера (мс), до которого игрок оглушён. 0 — управление есть. */
   stunnedUntil: number;
+  /**
+   * Оглушён ли игрок прямо сейчас.
+   *
+   * stunnedUntil — время сервера, и сравнивать его с часами на телефоне
+   * нельзя. Поэтому момент «у соперника сейчас ошибка» вынесен в отдельное
+   * поле: соперник читает его как есть, ничего не пересчитывая.
+   */
+  stunned: boolean;
 }
 
 export interface TreeGameState {
@@ -40,6 +48,31 @@ function isSide(value: unknown): value is BranchSide {
 function segmentAt(state: TreeGameState, index: number): TrunkSegment | undefined {
   if (state.trunk.length === 0) return undefined;
   return state.trunk[index - state.trunk[0].index];
+}
+
+/**
+ * Пересчитывает публичные флаги оглушения по серверным часам.
+ *
+ * Вызывается на каждом изменении состояния: партия синхронная, удары
+ * сыплются часто, и флаг соперника успевает погаснуть почти вовремя.
+ * Точное время окончания клиент всё равно доигрывает у себя по
+ * stunDurationMs — а истина о том, оглушён ли игрок, остаётся здесь.
+ */
+function refreshStunFlags(state: TreeGameState, at: number): TreeGameState {
+  let changed = false;
+  const players: Record<string, TreeGamePlayer> = {};
+
+  for (const [id, player] of Object.entries(state.players)) {
+    const stunned = at < player.stunnedUntil;
+    if (stunned === player.stunned) {
+      players[id] = player;
+      continue;
+    }
+    players[id] = { ...player, stunned };
+    changed = true;
+  }
+
+  return changed ? { ...state, players } : state;
 }
 
 function scoresOf(state: TreeGameState): number[] {
@@ -96,7 +129,7 @@ export const treegame: GameModule<TreeGameState> = {
     };
 
     for (const player of players) {
-      state.players[player.id] = { score: 0, stunnedUntil: 0 };
+      state.players[player.id] = { score: 0, stunnedUntil: 0, stunned: false };
     }
 
     return reframeTrunk(state);
@@ -120,28 +153,34 @@ export const treegame: GameModule<TreeGameState> = {
 
   applyAction(state, playerId, action: GameAction): TreeGameState {
     const { side } = action as ChopAction;
-    const player = state.players[playerId];
-    const segment = segmentAt(state, player.score);
+    const now = Date.now();
+
+    // Чужие оглушения могли истечь с прошлого удара — гасим их тем же
+    // проходом, чтобы флаг не висел до следующего действия его хозяина.
+    const fresh = refreshStunFlags(state, now);
+    const player = fresh.players[playerId];
+    const segment = segmentAt(fresh, player.score);
 
     // Удар пришёлся в ветку: счёт не растёт, управление отнимается.
     if (segment?.branch === side) {
       return {
-        ...state,
+        ...fresh,
         players: {
-          ...state.players,
+          ...fresh.players,
           [playerId]: {
             score: player.score,
-            stunnedUntil: Date.now() + state.stunDurationMs,
+            stunnedUntil: now + state.stunDurationMs,
+            stunned: true,
           },
         },
       };
     }
 
     const next: TreeGameState = {
-      ...state,
+      ...fresh,
       players: {
-        ...state.players,
-        [playerId]: { score: player.score + 1, stunnedUntil: 0 },
+        ...fresh.players,
+        [playerId]: { score: player.score + 1, stunnedUntil: 0, stunned: false },
       },
     };
 
